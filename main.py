@@ -4,75 +4,65 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from google import genai
+import google.generativeai as genai
 
 # ===============================
-# APP INITIALIZATION
+# APP INIT
 # ===============================
 app = FastAPI(title="Trex AI Image Generator")
 
-# ===============================
-# CORS (ALLOW NETLIFY / ANY FRONTEND)
-# ===============================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # you can restrict later
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ===============================
-# GEMINI CLIENT
+# GEMINI CONFIG
 # ===============================
 API_KEY = os.environ.get("GEMINI_API_KEY")
-
 if not API_KEY:
-    raise RuntimeError("❌ GEMINI_API_KEY environment variable not set")
+    raise RuntimeError("GEMINI_API_KEY not set")
 
-client = genai.Client(api_key=API_KEY)
+genai.configure(api_key=API_KEY)
+
+model = genai.GenerativeModel("gemini-1.5-flash")  # chat model
 
 # ===============================
-# HEALTH CHECK
+# HEALTH
 # ===============================
 @app.get("/")
 def home():
-    return {
-        "status": "online",
-        "model": "gemini-2.5-flash-image",
-        "message": "Trex AI Image Generator is running 🦖🔥"
-    }
+    return {"status": "online"}
 
 # ===============================
-# IMAGE GENERATION ENDPOINT
+# IMAGE GENERATION
 # ===============================
 @app.post("/generate-image")
 async def generate_image(prompt: str = Body(..., embed=True)):
     try:
-        print("🖼️ Prompt:", prompt)
+        print("Generating image for:", prompt)
 
-        # ---- CORRECT IMAGE API ----
-        result = client.models.generate_image(
-            model="gemini-2.5-flash-image",
-            prompt=prompt
+        response = model.generate_content(
+            f"Generate an image: {prompt}",
+            generation_config={"temperature": 0.4}
         )
 
-        if not result.images:
-            raise HTTPException(status_code=500, detail="No image returned from Gemini")
-
-        image_bytes = result.images[0].data
-
-        return StreamingResponse(
-            io.BytesIO(image_bytes),
-            media_type="image/png"
-        )
+        # ⚠️ Gemini via this SDK DOES NOT return raw PNG
+        # So we must return TEXT fallback
+        return {
+            "warning": "Gemini free SDK does not return raw images",
+            "output": response.text
+        }
 
     except Exception as e:
-        print("🔥 ERROR:", e)
+        print("ERROR:", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 # ===============================
-# RENDER ENTRY POINT
+# START
 # ===============================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
